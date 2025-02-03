@@ -1,0 +1,25 @@
+# Ignore target folder (Maven)
+target/
+
+# Ignore dependency caches
+.mvn/
+**/.mvn/
+
+# Ignore Maven Wrapper files
+mvnw
+mvnw.cmd
+
+# Ignore IDE files
+.idea/
+*.iml
+
+# Ignore logs
+logs/
+*.log
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore environment variables
+.env
