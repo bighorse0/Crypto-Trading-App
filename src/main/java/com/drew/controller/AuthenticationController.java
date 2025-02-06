@@ -1,10 +1,14 @@
 package com.drew.controller;
 
+import com.drew.auth.TwoFactorOTP;
 import com.drew.config.JwtProvider;
 import com.drew.entity.User;
 import com.drew.repository.UserRepository;
 import com.drew.response.AuthenticationResponse;
 import com.drew.service.CustomUserDetailsService;
+import com.drew.service.EmailService;
+import com.drew.service.TwoFactorOTPService;
+import com.drew.utils.OTPUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -13,10 +17,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/auth")
@@ -27,6 +28,12 @@ public class AuthenticationController {
 
     @Autowired
     private CustomUserDetailsService customUserDetailsService;
+
+    @Autowired
+    private TwoFactorOTPService twoFactorOTPService;
+
+    @Autowired
+    private EmailService emailService;
 
     @PostMapping("/signup")
     public ResponseEntity<AuthenticationResponse> createUser(@RequestBody User user) throws Exception {
@@ -72,6 +79,32 @@ public class AuthenticationController {
 
         String jwt = JwtProvider.generateToken(auth);
 
+        // username is equiv to email
+        User authUser = userRepository.findByEmail(username);
+
+        // IsEnabled()... @Data lombok so getIsEnabled()
+        // from TwoFactorAuthentication.java
+        if (user.getTwoFactorAuthentication().getIsEnabled()) {
+            AuthenticationResponse response = new AuthenticationResponse();
+            response.setMessage("Two factor authentication is enabled");
+            response.setTwoFactorAuthEnabled(true);
+            String otp = OTPUtils.generateOTP();
+
+            TwoFactorOTP oldOTP = twoFactorOTPService.findByUserId(authUser.getId());
+
+            if (oldOTP != null) {
+                twoFactorOTPService.deleteTwoFactorOTP(oldOTP);
+            }
+
+            TwoFactorOTP newOTP = twoFactorOTPService.createTwoFactorOTP(authUser, otp, jwt);
+
+            emailService.sendOTPEmail(username, otp);
+
+            response.setSession(newOTP.getId());
+            return new ResponseEntity<>(response, HttpStatus.ACCEPTED);
+        }
+
+        // if TwoFactorAuth is not enabled you will be signed in if you provided correct credentials
         AuthenticationResponse response = new AuthenticationResponse();
         response.setJwt(jwt);
         response.setStatus(true);
@@ -92,5 +125,19 @@ public class AuthenticationController {
         }
 
         return new UsernamePasswordAuthenticationToken(userDetails, password, userDetails.getAuthorities());
+    }
+
+    @PostMapping("/two-factor/otp/{otp}")
+    public ResponseEntity<AuthenticationResponse> verifySignInOTP(@PathVariable String otp, @RequestParam String id) throws Exception {
+        TwoFactorOTP twoFactorOTP = twoFactorOTPService.findById(id);
+
+        if (twoFactorOTPService.verifyTwoFactorOTP(twoFactorOTP, otp)) {
+            AuthenticationResponse response = new AuthenticationResponse();
+            response.setMessage("Two factor authentication is verified");
+            response.setTwoFactorAuthEnabled(true);
+            response.setJwt(twoFactorOTP.getJwtToken());
+            return new ResponseEntity<>(response, HttpStatus.OK);
+        }
+        throw new Exception("Invalid OTP");
     }
 }

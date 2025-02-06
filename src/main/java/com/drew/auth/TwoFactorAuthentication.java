@@ -6,7 +6,7 @@ import lombok.Data;
 @Data
 public class TwoFactorAuthentication
 {
-    private Boolean isEnabled;
+    private Boolean isEnabled = false;
     private VerificationType sendTo;
 
 }
